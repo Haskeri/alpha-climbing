@@ -1,0 +1,9 @@
+{
+  "name": "Alpha — учёт восхождений",
+  "short_name": "Alpha",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#eef2f7",
+  "theme_color": "#1d3557",
+  "icons": [{ "src": "img/logo.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1d3557">
+  <title>Alpha — учёт восхождений</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="img/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <img src="img/logo.svg" alt="" class="logo">
+      <div class="brand">
+        <div class="brand-name">Alpha</div>
+        <div class="brand-sub">учёт восхождений клуба</div>
+      </div>
+      <div class="server" id="server-status" title="Состояние сервера">●</div>
+    </header>
+
+    <!-- Экран входа -->
+    <section class="screen" id="screen-auth">
+      <div class="hero">
+        <h1>Добро пожаловать</h1>
+        <p>Войдите, чтобы управлять группами и вершинами, или подайте заявку на регистрацию.</p>
+      </div>
+      <div class="segmented">
+        <button class="seg active" data-auth-tab="login">Вход</button>
+        <button class="seg" data-auth-tab="register">Регистрация</button>
+      </div>
+      <form class="card form" id="form-login">
+        <label>Логин<input name="login" autocomplete="username" required></label>
+        <label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
+        <button class="btn primary" type="submit">Войти</button>
+        <button class="btn ghost" type="button" id="btn-guest">Продолжить без входа</button>
+      </form>
+      <form class="card form hidden" id="form-register">
+        <label>ФИО<input name="full_name" required></label>
+        <label>Логин<input name="login" autocomplete="username" minlength="3" required></label>
+        <label>Пароль<input name="password" type="password" autocomplete="new-password" minlength="6" required></label>
+        <button class="btn primary" type="submit">Отправить заявку</button>
+        <p class="hint">Заявку подтверждает администратор системы.</p>
+      </form>
+    </section>
+
+    <!-- Основные разделы -->
+    <main class="screen hidden" id="screen-main">
+      <div class="section-head">
+        <h2 id="section-title">Вершины</h2>
+        <button class="btn add hidden" id="btn-add">+ Добавить</button>
+      </div>
+      <div id="list" class="list"></div>
+    </main>
+
+    <nav class="tabbar hidden" id="tabbar">
+      <button class="tab active" data-tab="peaks"><span class="ico">▲</span>Вершины</button>
+      <button class="tab" data-tab="groups"><span class="ico">⚑</span>Группы</button>
+      <button class="tab" data-tab="climbers"><span class="ico">☺</span>Альпинисты</button>
+      <button class="tab" data-tab="profile"><span class="ico">⚙</span>Профиль</button>
+    </nav>
+  </div>
+
+  <div class="modal hidden" id="modal">
+    <div class="sheet">
+      <div class="sheet-head">
+        <h3 id="modal-title"></h3>
+        <button class="close" id="modal-close" aria-label="Закрыть">×</button>
+      </div>
+      <form class="form" id="modal-form"></form>
+    </div>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
