@@ -1,7 +1,10 @@
 """Начальное наполнение БД демонстрационными данными (выполняется, если БД пуста)."""
 from datetime import date
 
-from .models import ROLE_ADMIN, ROLE_CLIMBER, ROLE_LEADER, Climber, ClimbingGroup, Peak, User, db
+from sqlalchemy import select
+
+from .database import db
+from .models import ROLE_ADMIN, ROLE_CLIMBER, ROLE_LEADER, Climber, ClimbingGroup, Peak, User
 
 USERS = [
     ("anufriev", "Anufriev2026!", "Ануфриев Платон Дмитриевич", ROLE_LEADER),
@@ -41,20 +44,20 @@ GROUPS = [
 
 
 def seed_if_empty(app):
-    if User.query.first() is not None:
+    if db.scalar(select(User).limit(1)) is not None:
         return
     users = {}
     for login, password, full_name, role in USERS:
         user = User(login=login, full_name=full_name, role=role, is_approved=True)
         user.set_password(password)
-        db.session.add(user)
+        db.add(user)
         users[login] = user
     peaks = {name: Peak(name=name, height=h, country=c) for name, h, c in PEAKS}
-    db.session.add_all(peaks.values())
+    db.add_all(peaks.values())
     climbers = [Climber(full_name=n, birth_year=y, rank=r) for n, y, r in CLIMBERS]
-    db.session.add_all(climbers)
+    db.add_all(climbers)
     for name, peak, start, end, members, leader in GROUPS:
-        db.session.add(
+        db.add(
             ClimbingGroup(
                 name=name,
                 peak=peaks[peak],
@@ -64,5 +67,5 @@ def seed_if_empty(app):
                 members=[climbers[i] for i in members],
             )
         )
-    db.session.commit()
+    db.commit()
     app.logger.info("БД заполнена демонстрационными данными")

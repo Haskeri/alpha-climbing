@@ -7,9 +7,9 @@
 
 | Часть | Технологии |
 |---|---|
-| Серверная часть | Python 3.12, Flask 3, SQLAlchemy 2, Gunicorn |
+| Серверная часть | Python 3.12+ (в контейнере 3.15), Flask 3.1, SQLAlchemy 2.1, psycopg 3, Gunicorn 26 |
 | Клиентская часть | HTML5, CSS3, JavaScript (PWA, mobile-first) |
-| СУБД | SQLite (разработка) / PostgreSQL 16 (стенды) |
+| СУБД | SQLite (разработка) / PostgreSQL 18 (контейнер) |
 | ОС стендов | CentOS Stream 9 |
 
 ## Структура

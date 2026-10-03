@@ -4,8 +4,11 @@ from functools import wraps
 
 from flask import Blueprint, current_app, g, jsonify, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from . import __version__
+from .database import backend_name, db
 from .models import (
     ROLE_ADMIN,
     ROLE_CLIMBER,
@@ -15,7 +18,6 @@ from .models import (
     ClimbingGroup,
     Peak,
     User,
-    db,
 )
 
 api = Blueprint("api", __name__)
@@ -41,7 +43,7 @@ def _current_user():
         user_id = _serializer().loads(header[7:], max_age=TOKEN_TTL)
     except (BadSignature, SignatureExpired):
         return None
-    user = db.session.get(User, user_id)
+    user = db.get(User, user_id)
     return user if user and user.is_approved else None
 
 
@@ -60,6 +62,10 @@ def login_required(*roles):
         return wrapper
 
     return decorator
+
+
+def _count(model):
+    return db.scalar(select(func.count()).select_from(model))
 
 
 def _json():
@@ -86,7 +92,7 @@ def health():
             "service": "alpha-api",
             "version": __version__,
             "host": socket.gethostname(),
-            "database": db.engine.url.get_backend_name(),
+            "database": backend_name(),
         }
     )
 
@@ -95,10 +101,10 @@ def health():
 def stats():
     return jsonify(
         {
-            "peaks": Peak.query.count(),
-            "climbers": Climber.query.count(),
-            "groups": ClimbingGroup.query.count(),
-            "users": User.query.count(),
+            "peaks": _count(Peak),
+            "climbers": _count(Climber),
+            "groups": _count(ClimbingGroup),
+            "users": _count(User),
         }
     )
 
@@ -114,12 +120,12 @@ def register():
     full_name = (data.get("full_name") or "").strip()
     if len(login) < 3 or len(password) < 6 or not full_name:
         return error("Укажите логин (от 3 символов), пароль (от 6 символов) и ФИО", 400)
-    if User.query.filter_by(login=login).first():
+    if db.scalar(select(User).filter_by(login=login)):
         return error("Пользователь с таким логином уже существует", 409)
     user = User(login=login, full_name=full_name, role=ROLE_CLIMBER, is_approved=False)
     user.set_password(password)
-    db.session.add(user)
-    db.session.commit()
+    db.add(user)
+    db.commit()
     current_app.logger.info("Новая заявка на регистрацию: %s", login)
     return jsonify({"message": "Заявка отправлена администратору", "user": user.to_dict()}), 201
 
@@ -127,7 +133,7 @@ def register():
 @api.post("/auth/login")
 def login():
     data = _json()
-    user = User.query.filter_by(login=(data.get("login") or "").strip()).first()
+    user = db.scalar(select(User).filter_by(login=(data.get("login") or "").strip()))
     now = datetime.utcnow()
     if user and user.locked_until and user.locked_until > now:
         return error("Слишком много неудачных попыток. Повторите позже", 429)
@@ -137,14 +143,14 @@ def login():
             if user.failed_attempts >= MAX_FAILED_ATTEMPTS:
                 user.locked_until = now + timedelta(minutes=LOCK_MINUTES)
                 user.failed_attempts = 0
-            db.session.commit()
+            db.commit()
         current_app.logger.warning("Неудачная попытка входа: %s", data.get("login"))
         return error("Неверный логин или пароль", 401)
     if not user.is_approved:
         return error("Заявка на регистрацию ещё не подтверждена администратором", 403)
     user.failed_attempts = 0
     user.locked_until = None
-    db.session.commit()
+    db.commit()
     current_app.logger.info("Пользователь %s вошёл в систему", user.login)
     return jsonify({"token": _serializer().dumps(user.id), "user": user.to_dict()})
 
@@ -160,7 +166,9 @@ def me():
 
 @api.get("/peaks")
 def peaks_list():
-    peaks = Peak.query.order_by(Peak.height.desc()).all()
+    peaks = db.scalars(
+        select(Peak).options(selectinload(Peak.groups)).order_by(Peak.height.desc())
+    ).all()
     return jsonify([p.to_dict() for p in peaks])
 
 
@@ -185,11 +193,11 @@ def peaks_create():
         name, height, country = _peak_fields(_json())
     except ValueError as exc:
         return error(str(exc), 400)
-    if Peak.query.filter_by(name=name).first():
+    if db.scalar(select(Peak).filter_by(name=name)):
         return error("Такая вершина уже есть в каталоге", 409)
     peak = Peak(name=name, height=height, country=country)
-    db.session.add(peak)
-    db.session.commit()
+    db.add(peak)
+    db.commit()
     current_app.logger.info("%s добавил вершину «%s» (%s м)", g.user.login, name, height)
     return jsonify(peak.to_dict()), 201
 
@@ -197,7 +205,7 @@ def peaks_create():
 @api.put("/peaks/<int:peak_id>")
 @login_required(ROLE_LEADER, ROLE_ADMIN)
 def peaks_update(peak_id):
-    peak = db.session.get(Peak, peak_id)
+    peak = db.get(Peak, peak_id)
     if peak is None:
         return error("Вершина не найдена", 404)
     if peak.has_ascent:
@@ -206,7 +214,7 @@ def peaks_update(peak_id):
         peak.name, peak.height, peak.country = _peak_fields(_json())
     except ValueError as exc:
         return error(str(exc), 400)
-    db.session.commit()
+    db.commit()
     current_app.logger.info("%s изменил вершину #%s", g.user.login, peak_id)
     return jsonify(peak.to_dict())
 
@@ -216,7 +224,10 @@ def peaks_update(peak_id):
 
 @api.get("/climbers")
 def climbers_list():
-    return jsonify([c.to_dict() for c in Climber.query.order_by(Climber.full_name).all()])
+    climbers = db.scalars(
+        select(Climber).options(selectinload(Climber.groups)).order_by(Climber.full_name)
+    ).all()
+    return jsonify([c.to_dict() for c in climbers])
 
 
 @api.post("/climbers")
@@ -232,8 +243,8 @@ def climbers_create():
         birth_year=int(birth_year) if birth_year else None,
         rank=(data.get("rank") or "без разряда").strip(),
     )
-    db.session.add(climber)
-    db.session.commit()
+    db.add(climber)
+    db.commit()
     current_app.logger.info("%s добавил альпиниста «%s»", g.user.login, full_name)
     return jsonify(climber.to_dict()), 201
 
@@ -243,7 +254,15 @@ def climbers_create():
 
 @api.get("/groups")
 def groups_list():
-    groups = ClimbingGroup.query.order_by(ClimbingGroup.start_date.desc()).all()
+    groups = db.scalars(
+        select(ClimbingGroup)
+        .options(
+            selectinload(ClimbingGroup.members),
+            selectinload(ClimbingGroup.peak),
+            selectinload(ClimbingGroup.leader),
+        )
+        .order_by(ClimbingGroup.start_date.desc())
+    ).all()
     return jsonify([grp.to_dict() for grp in groups])
 
 
@@ -252,7 +271,7 @@ def groups_list():
 def groups_create():
     data = _json()
     name = (data.get("name") or "").strip()
-    peak = db.session.get(Peak, data.get("peak_id") or 0)
+    peak = db.get(Peak, data.get("peak_id") or 0)
     if not name or peak is None:
         return error("Укажите название группы и вершину", 400)
     try:
@@ -263,8 +282,8 @@ def groups_create():
     if end < start:
         return error("Дата окончания не может быть раньше даты начала", 400)
     group = ClimbingGroup(name=name, peak=peak, start_date=start, end_date=end, leader=g.user)
-    db.session.add(group)
-    db.session.commit()
+    db.add(group)
+    db.commit()
     current_app.logger.info("%s создал группу «%s» на %s", g.user.login, name, peak.name)
     return jsonify(group.to_dict()), 201
 
@@ -272,14 +291,14 @@ def groups_create():
 @api.post("/groups/<int:group_id>/members")
 @login_required(ROLE_LEADER, ROLE_ADMIN)
 def groups_add_member(group_id):
-    group = db.session.get(ClimbingGroup, group_id)
-    climber = db.session.get(Climber, _json().get("climber_id") or 0)
+    group = db.get(ClimbingGroup, group_id)
+    climber = db.get(Climber, _json().get("climber_id") or 0)
     if group is None or climber is None:
         return error("Группа или альпинист не найдены", 404)
     if climber in group.members:
         return error("Альпинист уже состоит в группе", 409)
     group.members.append(climber)
-    db.session.commit()
+    db.commit()
     current_app.logger.info("%s добавил %s в группу «%s»", g.user.login, climber.full_name, group.name)
     return jsonify(group.to_dict()), 201
 
@@ -290,14 +309,14 @@ def groups_add_member(group_id):
 @api.get("/admin/requests")
 @login_required(ROLE_ADMIN)
 def admin_requests():
-    pending = User.query.filter_by(is_approved=False).order_by(User.created_at).all()
+    pending = db.scalars(select(User).filter_by(is_approved=False).order_by(User.created_at)).all()
     return jsonify([u.to_dict() for u in pending])
 
 
 @api.post("/admin/requests/<int:user_id>/approve")
 @login_required(ROLE_ADMIN)
 def admin_approve(user_id):
-    user = db.session.get(User, user_id)
+    user = db.get(User, user_id)
     if user is None:
         return error("Заявка не найдена", 404)
     role = _json().get("role") or ROLE_CLIMBER
@@ -305,6 +324,6 @@ def admin_approve(user_id):
         return error("Неизвестная роль", 400)
     user.is_approved = True
     user.role = role
-    db.session.commit()
+    db.commit()
     current_app.logger.info("%s подтвердил заявку %s (роль %s)", g.user.login, user.login, role)
     return jsonify(user.to_dict())

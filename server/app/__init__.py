@@ -9,9 +9,10 @@ from flask import Flask
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
-from .models import db
+from .database import backend_name, db, init_db
+from .models import Base
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 
 def _database_url():
@@ -37,10 +38,10 @@ def _setup_logging(app):
     app.logger.setLevel(logging.INFO)
 
 
-def _wait_for_db(app, attempts=30, delay=2):
+def _wait_for_db(app, engine, attempts=30, delay=2):
     for attempt in range(1, attempts + 1):
         try:
-            with db.engine.connect() as conn:
+            with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
             return
         except OperationalError:
@@ -52,12 +53,15 @@ def _wait_for_db(app, attempts=30, delay=2):
 def create_app():
     app = Flask(__name__)
     app.config["SECRET_KEY"] = os.environ.get("ALPHA_SECRET_KEY", "dev-secret-change-me")
-    app.config["SQLALCHEMY_DATABASE_URI"] = _database_url()
     app.config["JSON_AS_ASCII"] = False
     app.json.ensure_ascii = False
 
     _setup_logging(app)
-    db.init_app(app)
+    engine = init_db(_database_url())
+
+    @app.teardown_appcontext
+    def close_session(_exc):
+        db.remove()
 
     from .api import api
 
@@ -71,8 +75,8 @@ def create_app():
         return response
 
     with app.app_context():
-        _wait_for_db(app)
-        db.create_all()
+        _wait_for_db(app, engine)
+        Base.metadata.create_all(engine)
         if os.environ.get("ALPHA_SEED", "1") == "1":
             from .seed import seed_if_empty
 
@@ -81,6 +85,6 @@ def create_app():
             "Alpha API %s запущен на %s, БД: %s",
             __version__,
             socket.gethostname(),
-            db.engine.url.get_backend_name(),
+            backend_name(),
         )
     return app
