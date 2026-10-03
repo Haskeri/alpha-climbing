@@ -5,7 +5,7 @@ import socket
 import time
 from logging.handlers import RotatingFileHandler
 
-from flask import Flask
+from flask import Flask, send_from_directory
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
@@ -37,6 +37,19 @@ def _setup_logging(app):
     app.logger.setLevel(logging.INFO)
 
 
+def _register_client(app):
+    """Раздача клиентской части тем же сервером (если каталог клиента доступен)."""
+    default_dir = os.path.join(os.path.dirname(__file__), "..", "..", "client")
+    client_dir = os.path.abspath(os.environ.get("ALPHA_CLIENT_DIR", default_dir))
+    if not os.path.isfile(os.path.join(client_dir, "index.html")):
+        return
+
+    @app.get("/")
+    @app.get("/<path:filename>")
+    def client(filename="index.html"):
+        return send_from_directory(client_dir, filename)
+
+
 def _wait_for_db(app, attempts=30, delay=2):
     for attempt in range(1, attempts + 1):
         try:
@@ -62,6 +75,7 @@ def create_app():
     from .api import api
 
     app.register_blueprint(api, url_prefix="/api")
+    _register_client(app)
 
     @app.after_request
     def cors(response):
