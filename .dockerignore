@@ -1,0 +1,11 @@
+.git
+.gitignore
+**/__pycache__
+**/*.pyc
+server/.venv
+server/data
+server/logs
+volumes
+.env
+docker-compose.yaml
+README.md
