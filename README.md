@@ -39,6 +39,30 @@ python3 -m http.server 8080
 
 Клиент: `http://<адрес стенда>:8080`, API: `http://<адрес стенда>:8000/api`.
 
+## Запуск в Docker
+
+Образ серверной части собирается из `Dockerfile` (база — `python:3.12-slim`):
+
+```bash
+docker build -t alpha-api:1.0 .
+docker run -d --name alpha-api -p 8000:8000 alpha-api:1.0   # клиент и API на :8000, БД SQLite
+```
+
+Полный стенд (PostgreSQL + API + nginx) описан в `docker-compose.yaml`:
+
+```bash
+cp .env.example .env            # задать пароли
+docker compose up -d --build    # сборка и запуск в фоне
+docker compose logs -f          # вывод stdout/stderr сервисов
+docker compose down             # остановка (данные остаются в ./volumes)
+```
+
+| Сервис | Образ | Назначение |
+|---|---|---|
+| `alpha-db` | `postgres:16-alpine` | СУБД, данные в `./volumes/postgres` |
+| `alpha-api` | сборка из `Dockerfile` | REST API, логи в `./volumes/logs/api` |
+| `alpha-web` | `nginx:1.27-alpine` | клиентская часть и прокси `/api`, логи в `./volumes/logs/nginx` |
+
 ## Переменные окружения
 
 | Переменная | Назначение | По умолчанию |

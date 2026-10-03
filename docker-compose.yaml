@@ -1,0 +1,51 @@
+name: alpha
+
+services:
+
+  alpha-db:                                  # СУБД PostgreSQL (официальный образ Docker Hub)
+    image: postgres:16-alpine
+    container_name: alpha-db
+    hostname: alpha-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./volumes/postgres:/var/lib/postgresql/data   # файлы БД
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  alpha-api:                                 # серверная часть Alpha (сборка из Dockerfile)
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: alpha-api:1.0
+    container_name: alpha-api
+    hostname: alpha-api
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@alpha-db:5432/${POSTGRES_DB}
+      ALPHA_SECRET_KEY: ${ALPHA_SECRET_KEY}
+    volumes:
+      - ./volumes/logs/api:/app/logs                  # логи приложения
+    depends_on:
+      alpha-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  alpha-web:                                 # nginx: клиентская часть + обратный прокси к API
+    image: nginx:1.27-alpine
+    container_name: alpha-web
+    hostname: alpha-web
+    ports:
+      - "${ALPHA_HTTP_PORT:-80}:80"
+    volumes:
+      - ./client:/usr/share/nginx/html:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./volumes/logs/nginx:/var/log/nginx           # логи веб-сервера
+    depends_on:
+      - alpha-api
+    restart: unless-stopped
